@@ -1,11 +1,13 @@
+import re
 from datetime import date, datetime
+from io import BytesIO
 from pathlib import Path
 
 import cv2
 import joblib
 import numpy as np
 import pandas as pd
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, send_file
 from sklearn.neighbors import KNeighborsClassifier
 
 
@@ -13,11 +15,11 @@ app = Flask(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
-TEMPLATES_DIR = BASE_DIR / "templates"
 ATTENDANCE_DIR = BASE_DIR / "Attendance"
 FACES_DIR = STATIC_DIR / "faces"
 MODEL_PATH = STATIC_DIR / "face_recognition_model.pkl"
 CASCADE_PATH = STATIC_DIR / "haarcascade_frontalface_default.xml"
+MIN_IMAGES_PER_USER = 50
 
 datetoday = date.today().strftime("%m_%d_%y")
 datetoday2 = date.today().strftime("%d-%B-%Y")
@@ -91,20 +93,41 @@ def train_model():
     joblib.dump(knn, MODEL_PATH)
 
 
-def extract_attendance():
+def attendance_dataframe():
     attendance_path = ensure_attendance_file()
     try:
         df = pd.read_csv(attendance_path)
     except pd.errors.EmptyDataError:
         df = pd.DataFrame(columns=["Name", "Roll", "Time"])
+    return df.fillna("")
 
+
+def extract_attendance():
+    df = attendance_dataframe()
     if df.empty:
         return [], [], [], 0
+    return df["Name"].tolist(), df["Roll"].tolist(), df["Time"].tolist(), len(df)
 
-    names = df["Name"].fillna("").tolist()
-    rolls = df["Roll"].fillna("").tolist()
-    times = df["Time"].fillna("").tolist()
-    return names, rolls, times, len(df)
+
+def attendance_summary():
+    df = attendance_dataframe()
+    total_records = len(df)
+    unique_people = df["Roll"].nunique() if not df.empty else 0
+    last_seen = df["Time"].iloc[-1] if not df.empty else "No attendance yet"
+    return {
+        "total_records": total_records,
+        "unique_people": int(unique_people),
+        "last_seen": last_seen,
+    }
+
+
+def normalize_username(raw_name):
+    cleaned = re.sub(r"\s+", " ", raw_name.strip())
+    if not cleaned:
+        raise ValueError("User name is required.")
+    if not re.fullmatch(r"[A-Za-z0-9 ]{3,40}", cleaned):
+        raise ValueError("Use 3-40 letters, numbers, or spaces for the user name.")
+    return cleaned.replace(" ", "_")
 
 
 def add_attendance(name):
@@ -115,7 +138,7 @@ def add_attendance(name):
     username, userid = parts
     current_time = datetime.now().strftime("%H:%M:%S")
     attendance_path = ensure_attendance_file()
-    df = pd.read_csv(attendance_path)
+    df = attendance_dataframe()
 
     try:
         userid_int = int(userid)
@@ -138,12 +161,26 @@ def render_home(message=None):
         totalreg=totalreg(),
         datetoday2=datetoday2,
         mess=message,
+        summary=attendance_summary(),
+        model_ready=MODEL_PATH.exists(),
+        min_images_per_user=MIN_IMAGES_PER_USER,
     )
 
 
 @app.route("/")
 def home():
     return render_home()
+
+
+@app.route("/attendance/download")
+def download_attendance():
+    csv_bytes = attendance_file_path().read_bytes()
+    return send_file(
+        BytesIO(csv_bytes),
+        as_attachment=True,
+        download_name=attendance_file_path().name,
+        mimetype="text/csv",
+    )
 
 
 @app.route("/start", methods=["GET"])
@@ -167,7 +204,7 @@ def start():
             faces = extract_faces(frame)
             if len(faces) > 0:
                 x, y, w, h = faces[0]
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 20), 2)
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 138, 76), 2)
                 face = cv2.resize(frame[y : y + h, x : x + w], (50, 50))
                 identified_person = identify_face(face.reshape(1, -1))[0]
                 add_attendance(identified_person)
@@ -177,7 +214,7 @@ def start():
                     (30, 30),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     1,
-                    (255, 0, 20),
+                    (255, 138, 76),
                     2,
                     cv2.LINE_AA,
                 )
@@ -189,21 +226,26 @@ def start():
         cap.release()
         cv2.destroyAllWindows()
 
-    return render_home()
+    return render_home("Attendance session finished successfully.")
 
 
-@app.route("/add", methods=["GET", "POST"])
+@app.route("/add", methods=["POST"])
 def add():
-    newusername = request.form.get("newusername", "").strip()
+    raw_username = request.form.get("newusername", "")
     newuserid = request.form.get("newuserid", "").strip()
 
-    if not newusername or not newuserid:
-        return render_home("Both user name and user ID are required.")
+    if not newuserid.isdigit():
+        return render_home("User ID must be numeric.")
+
+    try:
+        normalized_username = normalize_username(raw_username)
+    except ValueError as exc:
+        return render_home(str(exc))
 
     if face_detector.empty():
         return render_home("Face detection model is missing. Please verify the cascade XML file in the static folder.")
 
-    userimagefolder = FACES_DIR / f"{newusername}_{newuserid}"
+    userimagefolder = FACES_DIR / f"{normalized_username}_{newuserid}"
     userimagefolder.mkdir(parents=True, exist_ok=True)
 
     cap = cv2.VideoCapture(0)
@@ -214,33 +256,33 @@ def add():
     frame_counter = 0
 
     try:
-        while captured_images < 50:
+        while captured_images < MIN_IMAGES_PER_USER:
             ret, frame = cap.read()
             if not ret or frame is None:
                 return render_home("Webcam frames could not be read while capturing the new user.")
 
             faces = extract_faces(frame)
             for x, y, w, h in faces:
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 0, 20), 2)
+                cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 138, 76), 2)
                 cv2.putText(
                     frame,
-                    f"Images Captured: {captured_images}/50",
+                    f"Images Captured: {captured_images}/{MIN_IMAGES_PER_USER}",
                     (30, 30),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     1,
-                    (255, 0, 20),
+                    (255, 138, 76),
                     2,
                     cv2.LINE_AA,
                 )
                 if frame_counter % 10 == 0:
-                    image_name = f"{newusername}_{captured_images}.jpg"
+                    image_name = f"{normalized_username}_{captured_images}.jpg"
                     cv2.imwrite(str(userimagefolder / image_name), frame[y : y + h, x : x + w])
                     captured_images += 1
-                    if captured_images >= 50:
+                    if captured_images >= MIN_IMAGES_PER_USER:
                         break
                 frame_counter += 1
 
-            cv2.imshow("Adding new User", frame)
+            cv2.imshow("Adding New User", frame)
             if cv2.waitKey(1) == 27:
                 break
     finally:
@@ -255,7 +297,9 @@ def add():
     except ValueError as exc:
         return render_home(str(exc))
 
-    return render_home(f"User {newusername} was added successfully with {captured_images} captured images.")
+    return render_home(
+        f"User {raw_username.strip()} was added successfully with {captured_images} captured images."
+    )
 
 
 if __name__ == "__main__":
