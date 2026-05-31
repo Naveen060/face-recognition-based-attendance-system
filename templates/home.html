@@ -324,6 +324,7 @@
                 <div class="toolbar">
                     <a class="button button-primary" href="/start">Take Attendance</a>
                     <a class="button button-secondary" href="/attendance/download">Download CSV</a>
+                    <a class="button button-secondary" href="/users/download">Export User Roster</a>
                 </div>
 
                 <table>
@@ -376,6 +377,32 @@
                         Use only letters, numbers, and spaces for names. Keep the face visible to the webcam until the capture flow completes.
                     </p>
                 </form>
+
+                <div style="margin-top: 24px;">
+                    <h3 style="margin-bottom: 12px;">Registered User Roster</h3>
+                    {% if registered_users %}
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>ID</th>
+                                    <th>Images</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for user in registered_users %}
+                                <tr>
+                                    <td>{{ user.name }}</td>
+                                    <td>{{ user.user_id }}</td>
+                                    <td>{{ user.image_count }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    {% else %}
+                        <p class="hint">No registered users yet.</p>
+                    {% endif %}
+                </div>
             </div>
         </section>
     </main>

@@ -121,6 +121,23 @@ def attendance_summary():
     }
 
 
+def registered_users():
+    users = []
+    for user_dir in sorted(FACES_DIR.iterdir()):
+        if not user_dir.is_dir() or "_" not in user_dir.name:
+            continue
+        name, user_id = user_dir.name.rsplit("_", 1)
+        image_count = len([file for file in user_dir.iterdir() if file.is_file()])
+        users.append(
+            {
+                "name": name.replace("_", " "),
+                "user_id": user_id,
+                "image_count": image_count,
+            }
+        )
+    return users
+
+
 def normalize_username(raw_name):
     cleaned = re.sub(r"\s+", " ", raw_name.strip())
     if not cleaned:
@@ -162,6 +179,7 @@ def render_home(message=None):
         datetoday2=datetoday2,
         mess=message,
         summary=attendance_summary(),
+        registered_users=registered_users(),
         model_ready=MODEL_PATH.exists(),
         min_images_per_user=MIN_IMAGES_PER_USER,
     )
@@ -179,6 +197,20 @@ def download_attendance():
         BytesIO(csv_bytes),
         as_attachment=True,
         download_name=attendance_file_path().name,
+        mimetype="text/csv",
+    )
+
+
+@app.route("/users/download")
+def download_users():
+    df = pd.DataFrame(registered_users())
+    if df.empty:
+        df = pd.DataFrame(columns=["name", "user_id", "image_count"])
+    csv_bytes = df.to_csv(index=False).encode("utf-8")
+    return send_file(
+        BytesIO(csv_bytes),
+        as_attachment=True,
+        download_name="registered_users.csv",
         mimetype="text/csv",
     )
 
