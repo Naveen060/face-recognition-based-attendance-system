@@ -29,6 +29,7 @@ face-recognition-based-attendance-system/
 - Train a local KNN face recognition model from stored images
 - Mark attendance in real time from the webcam
 - Export the current day's attendance as CSV
+- Export the registered user roster as CSV
 - Show summary metrics for registered users and attendance activity
 - Run from a simple browser-based dashboard
 
@@ -41,9 +42,10 @@ This version is more current than the original prototype in both runtime behavio
 3. validation for user names and numeric user IDs
 4. automatic attendance file creation
 5. CSV download route for the current day's records
-6. summary metrics for attendance activity
-7. a cleaner, more polished dashboard layout
-8. more defensive model and cascade checks
+6. registered-user roster export
+7. summary metrics for attendance activity
+8. a cleaner, more polished dashboard layout
+9. more defensive model and cascade checks
 
 ## Run
 
