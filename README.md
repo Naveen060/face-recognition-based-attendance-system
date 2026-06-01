@@ -1,6 +1,6 @@
 # Face Recognition Based Attendance System
 
-This repository contains a Flask-based attendance application that captures webcam images, detects faces with OpenCV, identifies registered users with a KNN classifier, and stores daily attendance records in CSV format.
+This repository contains a Flask-based attendance application that captures webcam images, detects faces with OpenCV, identifies registered users with a weighted KNN classifier, and stores daily attendance records in CSV format.
 
 ## Stack
 
@@ -26,7 +26,7 @@ face-recognition-based-attendance-system/
 ## Features
 
 - Register a new user from live webcam capture
-- Train a local KNN face recognition model from stored images
+- Train a local weighted KNN face recognition model from stored images
 - Mark attendance in real time from the webcam
 - Export the current day's attendance as CSV
 - Export the registered user roster as CSV
@@ -46,6 +46,9 @@ This version is more current than the original prototype in both runtime behavio
 7. summary metrics for attendance activity
 8. a cleaner, more polished dashboard layout
 9. more defensive model and cascade checks
+10. cached model loading so webcam attendance does not reload the classifier on every frame
+11. primary-face selection so the largest detected face is used during live attendance
+12. scaled feature vectors with distance-weighted KNN voting for more stable matching
 
 ## Run
 

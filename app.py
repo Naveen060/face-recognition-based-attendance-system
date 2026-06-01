@@ -1,5 +1,6 @@
 import re
 from datetime import date, datetime
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 
@@ -7,6 +8,8 @@ import cv2
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
 from flask import Flask, render_template, request, send_file
 from sklearn.neighbors import KNeighborsClassifier
 
@@ -57,13 +60,24 @@ def extract_faces(img):
     if img is None or img.size == 0 or face_detector.empty():
         return []
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    return face_detector.detectMultiScale(gray, 1.3, 5)
+    return face_detector.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5, minSize=(60, 60))
+
+
+def select_primary_face(faces):
+    if len(faces) == 0:
+        return None
+    return max(faces, key=lambda face: face[2] * face[3])
+
+
+@lru_cache(maxsize=1)
+def load_trained_model():
+    if not MODEL_PATH.exists():
+        raise FileNotFoundError("Trained model file was not found.")
+    return joblib.load(MODEL_PATH)
 
 
 def identify_face(facearray):
-    if not MODEL_PATH.exists():
-        raise FileNotFoundError("Trained model file was not found.")
-    model = joblib.load(MODEL_PATH)
+    model = load_trained_model()
     return model.predict(facearray)
 
 
@@ -88,9 +102,17 @@ def train_model():
         raise ValueError("No face images are available to train the model.")
 
     n_neighbors = min(5, len(faces))
-    knn = KNeighborsClassifier(n_neighbors=n_neighbors)
+    knn = make_pipeline(
+        StandardScaler(),
+        KNeighborsClassifier(
+            n_neighbors=n_neighbors,
+            weights="distance",
+            algorithm="auto",
+        ),
+    )
     knn.fit(np.array(faces), labels)
     joblib.dump(knn, MODEL_PATH)
+    load_trained_model.cache_clear()
 
 
 def attendance_dataframe():
@@ -162,7 +184,8 @@ def add_attendance(name):
     except ValueError:
         return
 
-    if userid_int not in pd.to_numeric(df["Roll"], errors="coerce").dropna().astype(int).tolist():
+    existing_rolls = set(pd.to_numeric(df["Roll"], errors="coerce").dropna().astype(int).tolist())
+    if userid_int not in existing_rolls:
         with attendance_path.open("a", encoding="utf-8") as attendance_file:
             attendance_file.write(f"{username},{userid_int},{current_time}\n")
 
@@ -234,8 +257,9 @@ def start():
                 return render_home("Webcam frames could not be read. Please reconnect the camera and try again.")
 
             faces = extract_faces(frame)
-            if len(faces) > 0:
-                x, y, w, h = faces[0]
+            primary_face = select_primary_face(faces)
+            if primary_face is not None:
+                x, y, w, h = primary_face
                 cv2.rectangle(frame, (x, y), (x + w, y + h), (255, 138, 76), 2)
                 face = cv2.resize(frame[y : y + h, x : x + w], (50, 50))
                 identified_person = identify_face(face.reshape(1, -1))[0]
