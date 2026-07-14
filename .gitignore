@@ -1,2 +1,10 @@
 __pycache__/
 *.py[cod]
+.venv/
+.edge-profile/
+attendance.db
+Attendance/
+server.log
+server.err.log
+static/faces/
+static/face_recognition_model.pkl
